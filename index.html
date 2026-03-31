@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>發票解析工具</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; }
+        h2 { text-align: center; margin-top: 0; }
+        input, button { width: 100%; padding: 14px; margin: 10px 0; border-radius: 8px; border: none; font-size: 16px; box-sizing: border-box; }
+        input[type="password"] { background: #333; color: #fff; border: 1px solid #555; }
+        input[type="file"] { background: #333; color: #fff; padding: 12px; border: 1px dashed #777; }
+        button { background: #007bff; color: white; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #555; color: #999; }
+        #preview { max-width: 100%; border-radius: 8px; margin-top: 10px; display: none; }
+        #result { background: #2d2d2d; padding: 15px; border-radius: 8px; margin-top: 20px; white-space: pre-wrap; word-break: break-all; min-height: 120px; font-size: 15px; border: 1px solid #444; }
+        .checkbox-group { display: flex; align-items: center; font-size: 14px; color: #ccc; margin-bottom: 15px; }
+        .checkbox-group input { width: auto; margin-right: 10px; transform: scale(1.3); }
+    </style>
+</head>
+<body>
+    <h2>發票解析工具</h2>
+    
+    <input type="password" id="apiKey" placeholder="貼上 Gemini API Key">
+    <div class="checkbox-group">
+        <input type="checkbox" id="saveKey"> <label for="saveKey">記住金鑰 (存手機瀏覽器)</label>
+    </div>
+
+    <input type="file" id="imageInput" accept="image/*" capture="environment">
+    <img id="preview" alt="發票預覽">
+
+    <button id="submitBtn">送出解析</button>
+
+    <div id="result">結果會顯示在這裡...</div>
+
+    <script>
+        const apiKeyInput = document.getElementById('apiKey');
+        const saveKeyCheck = document.getElementById('saveKey');
+        const imageInput = document.getElementById('imageInput');
+        const preview = document.getElementById('preview');
+        const submitBtn = document.getElementById('submitBtn');
+        const resultDiv = document.getElementById('result');
+        let base64Image = "";
+
+        // 檢查有沒有存過金鑰
+        if (localStorage.getItem('saved_gemini_key')) {
+            apiKeyInput.value = localStorage.getItem('saved_gemini_key');
+            saveKeyCheck.checked = true;
+        }
+
+        // 勾選狀態改變時處理暫存
+        saveKeyCheck.addEventListener('change', () => {
+            if (!saveKeyCheck.checked) {
+                localStorage.removeItem('saved_gemini_key');
+            }
+        });
+
+        // 圖片預覽與轉碼
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                preview.src = event.target.result;
+                preview.style.display = 'block';
+                base64Image = event.target.result.split(',')[1];
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // 送出 API 請求
+        submitBtn.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) return alert("API Key 沒填。");
+            if (!base64Image) return alert("照片沒傳。");
+
+            // 如果有打勾就存起來
+            if (saveKeyCheck.checked) {
+                localStorage.setItem('saved_gemini_key', apiKey);
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.innerText = "解析中，稍微等一下...";
+            resultDiv.innerText = "資料讀取中...";
+
+            const prompt = "請解出這張發票的下列資訊：店名、日期時間、中文品項、日文品項、日幣金額。請條理分明地列出。";
+            
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+                            ]
+                        }]
+                    })
+                });
+
+                const data = await res.json();
+                if (data.error) throw new Error(data.error.message);
+                
+                resultDiv.innerText = data.candidates[0].content.parts[0].text;
+
+            } catch (err) {
+                resultDiv.innerText = "出錯了：\n" + err.message;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "送出解析";
+            }
+        });
+    </script>
+</body>
+</html>
