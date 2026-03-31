@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>發票解析工具 (究極對帳版)</title>
+    <title>發票解析工具 (完成版)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; }
         h2 { text-align: center; margin-top: 0; }
@@ -16,13 +16,11 @@
         #preview { max-width: 100%; border-radius: 8px; margin-top: 10px; display: none; }
         
         #resultContainer { margin-top: 20px; display: none; }
-        
-        /* 讓表格在手機上可以左右滑動，不會擠爛 */
         .table-responsive { width: 100%; overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #555; }
         table { width: 100%; border-collapse: collapse; background: #2d2d2d; font-size: 14px; min-width: 500px; }
         th, td { border: 1px solid #555; padding: 10px 8px; text-align: left; }
         th { background: #444; color: #66b3ff; white-space: nowrap; }
-        td:nth-child(4) { text-align: right; color: #ffdd66; font-weight: bold; } /* 日幣特別標色 */
+        td:nth-child(4) { text-align: right; color: #ffdd66; font-weight: bold; }
         
         .action-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .action-btns button { margin: 0; padding: 12px; font-size: 15px; }
@@ -42,7 +40,7 @@
         <input type="checkbox" id="saveKey"> <label for="saveKey">記住金鑰</label>
     </div>
 
-    <input type="file" id="imageInput" accept="image/*">
+    <input type="file" id="imageInput" accept="image/*" capture="environment">
     <img id="preview" alt="發票預覽">
 
     <button id="submitBtn">送出解析</button>
@@ -85,9 +83,9 @@
         const shareBtn = document.getElementById('shareBtn');
         
         let base64Image = "";
-        let detailsTsv = "";    // 只存 3 欄
-        let totalTsv = "";      // 只存 3 欄
-        let fullShareText = ""; // 存所有內容含翻譯
+        let detailsTsv = "";
+        let totalTsv = "";
+        let fullShareText = "";
 
         if (localStorage.getItem('saved_gemini_key')) {
             apiKeyInput.value = localStorage.getItem('saved_gemini_key');
@@ -121,16 +119,13 @@
             resultContainer.style.display = 'none';
             statusText.innerText = "玩命解析中，請稍候...";
 
+            // 提示詞加狠，逼它好好翻
             const prompt = `請解析這張發票。
-            請嚴格輸出純 JSON 陣列格式，不要加上 \`\`\`json 標籤，也不要說任何其他廢話。
+            請嚴格輸出純 JSON 陣列格式，不要加上 \`\`\`json 標籤，也不要說任何廢話。
+            請將日文商品名稱精準翻譯成通順的「台灣繁體中文」，絕對不要有生硬的機翻感。
             規則如下：
-            1. 每一筆品項轉成一個 JSON 物件：{"date": "MM/DD", "item": "店名 - 日文原文", "translation": "中文翻譯", "price": 數字}。
-            2. 最後一筆必須是加總物件：{"date": "", "item": "店名 (總計)", "translation": "", "price": 總金額數字}。
-            例如：
-            [
-              {"date": "08/13", "item": "駿河屋 - 誕生日なうさぎBIGぬいぐるみ", "translation": "生日兔子 BIG 絨毛娃娃", "price": 600},
-              {"date": "", "item": "駿河屋 (總計)", "translation": "", "price": 3000}
-            ]`;
+            1. 每一筆品項轉成一個 JSON 物件：{"date": "MM/DD", "item": "店名 - 日文原文", "translation": "高質量的繁體中文翻譯", "price": 數字}。
+            2. 最後一筆必須是加總物件：{"date": "", "item": "店名 (總計)", "translation": "", "price": 總金額數字}。`;
             
             try {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
@@ -154,7 +149,6 @@
                 
                 const parsedData = JSON.parse(rawText);
                 
-                // 自動組合總計名稱與日期的邏輯
                 if (parsedData.length > 1) {
                     const itemsData = parsedData.slice(0, -1);
                     const firstItem = itemsData[0];
@@ -168,7 +162,8 @@
                     const summarySuffix = itemsData.length > 3 ? "..." : "";
                     const totalRow = parsedData[parsedData.length - 1];
                     totalRow.date = firstItem.date;
-                    totalRow.item = `${storeName}(${summaryNames.join(',')}${summarySuffix})`;
+                    // 前面加上「加總：」
+                    totalRow.item = `加總：${storeName}(${summaryNames.join(',')}${summarySuffix})`;
                 }
 
                 let html = '';
@@ -177,10 +172,8 @@
                 fullShareText = "發票解析明細：\n\n";
 
                 parsedData.forEach((row, index) => {
-                    // 表格顯示 4 欄 (讓你看爽的)
                     html += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
                     
-                    // 複製按鈕專用的 TSV，只抽 3 欄 (無視 translation)
                     if (index === parsedData.length - 1) {
                         totalTsv = `${row.date}\t${row.item}\t${row.price}`;
                     } else {
@@ -189,18 +182,18 @@
                     }
                 });
 
-                // 分享用的文字，包含翻譯
+                // 分享用的文字，用 \n\n 來做到每筆空一行
                 fullShareText += parsedData.map(r => {
                     if (r.translation) {
                         return `${r.date || '    '} | ${r.item} | ${r.translation} | ¥${r.price}`;
                     } else {
                         return `${r.date || '    '} | ${r.item} | ¥${r.price}`;
                     }
-                }).join('\n');
+                }).join('\n\n');
 
                 tableBody.innerHTML = html;
                 resultContainer.style.display = 'block';
-                statusText.innerText = "解析完成！請對帳。";
+                statusText.innerText = "解析完成！";
 
             } catch (err) {
                 statusText.innerText = "出錯了，可能是 AI 沒按格式回傳：\n" + err.message;
@@ -222,9 +215,8 @@
             }).catch(() => alert("複製失敗，請檢查瀏覽器權限。"));
         }
 
-        // 這裡綁定的變數是 detailsTsv 跟 totalTsv，裡面只有 3 欄
-        copyDetailsBtn.addEventListener('click', () => handleCopy(detailsTsv, copyDetailsBtn, "✅ 明細已複製 (純3欄)"));
-        copyTotalBtn.addEventListener('click', () => handleCopy(totalTsv, copyTotalBtn, "✅ 加總已複製 (純3欄)"));
+        copyDetailsBtn.addEventListener('click', () => handleCopy(detailsTsv, copyDetailsBtn, "✅ 明細已複製"));
+        copyTotalBtn.addEventListener('click', () => handleCopy(totalTsv, copyTotalBtn, "✅ 加總已複製"));
 
         shareBtn.addEventListener('click', async () => {
             const shareData = {
