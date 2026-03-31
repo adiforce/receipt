@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>發票解析工具 (分享進化版)</title>
+    <title>發票解析工具 (究極記帳版)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; }
         h2 { text-align: center; margin-top: 0; }
@@ -25,7 +25,7 @@
         .action-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .action-btns button { margin: 0; padding: 12px; font-size: 15px; }
         .btn-copy { background: #28a745; }
-        .btn-share { background: #17a2b8; grid-column: span 2; } /* 分享按鈕佔滿整行 */
+        .btn-share { background: #17a2b8; grid-column: span 2; }
         
         .checkbox-group { display: flex; align-items: center; font-size: 14px; color: #ccc; margin-bottom: 15px; }
         .checkbox-group input { width: auto; margin-right: 10px; transform: scale(1.3); }
@@ -149,6 +149,30 @@
                 
                 const parsedData = JSON.parse(rawText);
                 
+                // --- 這裡開始是你要的「自動組合總計名稱與日期」的魔改邏輯 ---
+                if (parsedData.length > 1) {
+                    const itemsData = parsedData.slice(0, -1); // 扣掉最後一筆總計的所有明細
+                    const firstItem = itemsData[0];
+                    
+                    // 抓店名
+                    const storeName = firstItem.item.includes(' - ') ? firstItem.item.split(' - ')[0].trim() : "未知名稱";
+                    
+                    // 抓前三個品項，並只取前三個字
+                    const summaryNames = itemsData.slice(0, 3).map(r => {
+                        const pureItemName = r.item.includes(' - ') ? r.item.split(' - ')[1].trim() : r.item.trim();
+                        return pureItemName.substring(0, 3); // 只取前三個字
+                    });
+                    
+                    // 如果品項超過三個，後面加個「...」
+                    const summarySuffix = itemsData.length > 3 ? "..." : "";
+                    
+                    // 把最後一筆(總計)拿出來改造
+                    const totalRow = parsedData[parsedData.length - 1];
+                    totalRow.date = firstItem.date; // 強制補上第一筆的日期
+                    totalRow.item = `${storeName}(${summaryNames.join(',')}${summarySuffix})`; // 重新組裝項目名稱
+                }
+                // --- 魔改邏輯結束 ---
+
                 let html = '';
                 detailsTsv = "";
                 totalTsv = "";
@@ -157,17 +181,14 @@
                 parsedData.forEach((row, index) => {
                     html += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.price}</td></tr>`;
                     
-                    // 判斷是否為最後一筆（加總）
                     if (index === parsedData.length - 1) {
                         totalTsv = `${row.date}\t${row.item}\t${row.price}`;
                     } else {
-                        // 如果不是第一筆明細，前面加個換行
                         if (detailsTsv !== "") detailsTsv += "\n";
                         detailsTsv += `${row.date}\t${row.item}\t${row.price}`;
                     }
                 });
 
-                // 組合給分享用的純文字 (不一定要用 Tab，用空格或排版好看點)
                 fullShareText += parsedData.map(r => `${r.date || '    '} | ${r.item} | ¥${r.price}`).join('\n');
 
                 tableBody.innerHTML = html;
@@ -181,13 +202,12 @@
             }
         });
 
-        // 通用的複製按鈕功能
         function handleCopy(textToCopy, btnElement, successMsg) {
             navigator.clipboard.writeText(textToCopy).then(() => {
                 const originalText = btnElement.innerText;
                 const originalBg = btnElement.style.background;
                 btnElement.innerText = successMsg;
-                btnElement.style.background = "#1e7e34"; // 更深的綠色
+                btnElement.style.background = "#1e7e34";
                 setTimeout(() => {
                     btnElement.innerText = originalText;
                     btnElement.style.background = originalBg;
@@ -198,23 +218,19 @@
         copyDetailsBtn.addEventListener('click', () => handleCopy(detailsTsv, copyDetailsBtn, "✅ 明細已複製"));
         copyTotalBtn.addEventListener('click', () => handleCopy(totalTsv, copyTotalBtn, "✅ 加總已複製"));
 
-        // 分享按鈕功能
         shareBtn.addEventListener('click', async () => {
             const shareData = {
                 title: '發票解析結果',
                 text: fullShareText
             };
             
-            // 檢查瀏覽器是否支援 Web Share API
             if (navigator.share && navigator.canShare(shareData)) {
                 try {
                     await navigator.share(shareData);
                 } catch (err) {
-                    // 使用者取消分享也會進到這裡，通常不特別處理
                     console.log('分享取消或失敗:', err);
                 }
             } else {
-                // 不支援的話，降級為複製全部內容 (改回 TSV 格式方便貼 Excel)
                 const fullTsv = detailsTsv + "\n" + totalTsv;
                 handleCopy(fullTsv, shareBtn, "✅ 已複製全部內容");
             }
