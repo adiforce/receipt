@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>發票解析工具 (完成版)</title>
+    <title>發票解析工具 (連發版)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; }
         h2 { text-align: center; margin-top: 0; }
@@ -13,7 +13,10 @@
         button { background: #007bff; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
         button:disabled { background: #555; color: #999; }
         
-        #preview { max-width: 100%; border-radius: 8px; margin-top: 10px; display: none; }
+        /* 縮圖改小，別擋路 */
+        #preview { max-width: 100%; max-height: 150px; border-radius: 8px; margin-top: 10px; display: none; object-fit: contain; background: #000; }
+        
+        #scanMoreBtn { background: #ff9800; display: none; }
         
         #resultContainer { margin-top: 20px; display: none; }
         .table-responsive { width: 100%; overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #555; }
@@ -40,10 +43,12 @@
         <input type="checkbox" id="saveKey"> <label for="saveKey">記住金鑰</label>
     </div>
 
-    <input type="file" id="imageInput" accept="image/*" >
+    <input type="file" id="imageInput" accept="image/*" capture="environment">
     <img id="preview" alt="發票預覽">
 
     <button id="submitBtn">送出解析</button>
+    <button id="scanMoreBtn">📷 繼續掃下一張</button>
+    
     <div id="statusText"></div>
 
     <div id="resultContainer">
@@ -62,8 +67,8 @@
         </div>
         
         <div class="action-btns">
-            <button id="copyDetailsBtn" class="btn-copy">📋 複製明細</button>
-            <button id="copyTotalBtn" class="btn-copy">📋 複製加總</button>
+            <button id="copyDetailsBtn" class="btn-copy">📋 複製所有明細</button>
+            <button id="copyTotalBtn" class="btn-copy">📋 複製所有加總</button>
             <button id="shareBtn" class="btn-share">📤 系統分享 / 複製全部</button>
         </div>
     </div>
@@ -74,6 +79,7 @@
         const imageInput = document.getElementById('imageInput');
         const preview = document.getElementById('preview');
         const submitBtn = document.getElementById('submitBtn');
+        const scanMoreBtn = document.getElementById('scanMoreBtn');
         const statusText = document.getElementById('statusText');
         const resultContainer = document.getElementById('resultContainer');
         const tableBody = document.getElementById('tableBody');
@@ -83,9 +89,11 @@
         const shareBtn = document.getElementById('shareBtn');
         
         let base64Image = "";
-        let detailsTsv = "";
-        let totalTsv = "";
-        let fullShareText = "";
+        
+        // 全局累積變數，掃幾張存幾張
+        let globalDetailsTsv = "";
+        let globalTotalTsv = "";
+        let globalShareText = "";
 
         if (localStorage.getItem('saved_gemini_key')) {
             apiKeyInput.value = localStorage.getItem('saved_gemini_key');
@@ -108,6 +116,16 @@
             reader.readAsDataURL(file);
         });
 
+        // 繼續掃下一張按鈕功能
+        scanMoreBtn.addEventListener('click', () => {
+            imageInput.value = '';
+            preview.style.display = 'none';
+            base64Image = '';
+            scanMoreBtn.style.display = 'none';
+            submitBtn.style.display = 'block';
+            statusText.innerText = "請上傳新發票";
+        });
+
         submitBtn.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             if (!apiKey) return alert("API Key 沒填。");
@@ -116,10 +134,8 @@
             if (saveKeyCheck.checked) localStorage.setItem('saved_gemini_key', apiKey);
 
             submitBtn.disabled = true;
-            resultContainer.style.display = 'none';
             statusText.innerText = "玩命解析中，請稍候...";
 
-            // 提示詞加狠，逼它好好翻
             const prompt = `請解析這張發票。
             請嚴格輸出純 JSON 陣列格式，不要加上 \`\`\`json 標籤，也不要說任何廢話。
             請將日文商品名稱精準翻譯成通順的「台灣繁體中文」，絕對不要有生硬的機翻感。
@@ -162,28 +178,26 @@
                     const summarySuffix = itemsData.length > 3 ? "..." : "";
                     const totalRow = parsedData[parsedData.length - 1];
                     totalRow.date = firstItem.date;
-                    // 前面加上「加總：」
                     totalRow.item = `加總：${storeName}(${summaryNames.join(',')}${summarySuffix})`;
                 }
 
-                let html = '';
-                detailsTsv = "";
-                totalTsv = "";
-                fullShareText = "發票解析明細：\n\n";
+                let newHtml = '';
+                let newDetailsTsv = '';
+                let newTotalTsv = '';
+                let newShareText = '';
 
                 parsedData.forEach((row, index) => {
-                    html += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
+                    newHtml += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
                     
                     if (index === parsedData.length - 1) {
-                        totalTsv = `${row.date}\t${row.item}\t${row.price}`;
+                        newTotalTsv = `${row.date}\t${row.item}\t${row.price}`;
                     } else {
-                        if (detailsTsv !== "") detailsTsv += "\n";
-                        detailsTsv += `${row.date}\t${row.item}\t${row.price}`;
+                        if (newDetailsTsv !== "") newDetailsTsv += "\n";
+                        newDetailsTsv += `${row.date}\t${row.item}\t${row.price}`;
                     }
                 });
 
-                // 分享用的文字，用 \n\n 來做到每筆空一行
-                fullShareText += parsedData.map(r => {
+                newShareText += parsedData.map(r => {
                     if (r.translation) {
                         return `${r.date || '    '} | ${r.item} | ${r.translation} | ¥${r.price}`;
                     } else {
@@ -191,18 +205,30 @@
                     }
                 }).join('\n\n');
 
-                tableBody.innerHTML = html;
+                // 把新資料疊加到全域變數前面 (新的在最上面)
+                globalDetailsTsv = newDetailsTsv + (globalDetailsTsv ? "\n" + globalDetailsTsv : "");
+                globalTotalTsv = newTotalTsv + (globalTotalTsv ? "\n" + globalTotalTsv : "");
+                globalShareText = newShareText + (globalShareText ? "\n\n---\n\n" + globalShareText : "");
+
+                // 新表格資料插在最上面
+                tableBody.insertAdjacentHTML('afterbegin', newHtml);
+                
                 resultContainer.style.display = 'block';
-                statusText.innerText = "解析完成！";
+                statusText.innerText = "解析完成！可以點擊下方按鈕繼續掃描。";
+                
+                // 切換按鈕顯示狀態
+                submitBtn.style.display = 'none';
+                scanMoreBtn.style.display = 'block';
 
             } catch (err) {
-                statusText.innerText = "出錯了，可能是 AI 沒按格式回傳：\n" + err.message;
+                statusText.innerText = "出錯了：\n" + err.message;
             } finally {
                 submitBtn.disabled = false;
             }
         });
 
         function handleCopy(textToCopy, btnElement, successMsg) {
+            if (!textToCopy) return alert("沒資料可複製。");
             navigator.clipboard.writeText(textToCopy).then(() => {
                 const originalText = btnElement.innerText;
                 const originalBg = btnElement.style.background;
@@ -212,26 +238,27 @@
                     btnElement.innerText = originalText;
                     btnElement.style.background = originalBg;
                 }, 2000);
-            }).catch(() => alert("複製失敗，請檢查瀏覽器權限。"));
+            }).catch(() => alert("複製失敗。"));
         }
 
-        copyDetailsBtn.addEventListener('click', () => handleCopy(detailsTsv, copyDetailsBtn, "✅ 明細已複製"));
-        copyTotalBtn.addEventListener('click', () => handleCopy(totalTsv, copyTotalBtn, "✅ 加總已複製"));
+        copyDetailsBtn.addEventListener('click', () => handleCopy(globalDetailsTsv, copyDetailsBtn, "✅ 已複製所有明細"));
+        copyTotalBtn.addEventListener('click', () => handleCopy(globalTotalTsv, copyTotalBtn, "✅ 已複製所有加總"));
 
         shareBtn.addEventListener('click', async () => {
+            if (!globalShareText) return alert("沒資料可分享。");
             const shareData = {
                 title: '發票解析結果',
-                text: fullShareText
+                text: "發票解析明細：\n\n" + globalShareText
             };
             
             if (navigator.share && navigator.canShare(shareData)) {
                 try {
                     await navigator.share(shareData);
                 } catch (err) {
-                    console.log('分享取消:', err);
+                    console.log('分享取消');
                 }
             } else {
-                handleCopy(fullShareText, shareBtn, "✅ 已複製含翻譯完整文字");
+                handleCopy(shareData.text, shareBtn, "✅ 已複製全部內容");
             }
         });
     </script>
