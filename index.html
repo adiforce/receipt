@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>發票解析工具 (連發版)</title>
+    <title>發票解析工具 (本機儲存版)</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; }
+        body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; padding-bottom: 50px; }
         h2 { text-align: center; margin-top: 0; }
         input, button { width: 100%; padding: 14px; margin: 10px 0; border-radius: 8px; border: none; font-size: 16px; box-sizing: border-box; }
         input[type="password"] { background: #333; color: #fff; border: 1px solid #555; }
@@ -13,26 +13,31 @@
         button { background: #007bff; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
         button:disabled { background: #555; color: #999; }
         
-        /* 縮圖改小，別擋路 */
         #preview { max-width: 100%; max-height: 150px; border-radius: 8px; margin-top: 10px; display: none; object-fit: contain; background: #000; }
         
-        #scanMoreBtn { background: #ff9800; display: none; }
+        .checkbox-group { display: flex; align-items: center; font-size: 14px; color: #ccc; margin-bottom: 15px; }
+        .checkbox-group input { width: auto; margin-right: 10px; transform: scale(1.3); }
+        #statusText { color: #aaa; font-size: 14px; text-align: center; margin-top: 10px; margin-bottom: 20px; white-space: pre-wrap; min-height: 20px;}
         
-        #resultContainer { margin-top: 20px; display: none; }
-        .table-responsive { width: 100%; overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #555; }
+        /* 歷史紀錄區塊的分割線 */
+        .divider { border-top: 1px solid #444; margin: 20px 0; padding-top: 10px; color: #888; text-align: center; font-size: 14px; letter-spacing: 2px;}
+
+        /* 發票卡片樣式 */
+        .invoice-card { background: #252525; padding: 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .card-time { font-size: 12px; color: #888; }
+        .btn-delete { width: auto; padding: 6px 12px; margin: 0; background: #dc3545; font-size: 12px; border-radius: 6px; }
+        
+        .table-responsive { width: 100%; overflow-x: auto; margin-bottom: 15px; border-radius: 6px; border: 1px solid #444; }
         table { width: 100%; border-collapse: collapse; background: #2d2d2d; font-size: 14px; min-width: 500px; }
-        th, td { border: 1px solid #555; padding: 10px 8px; text-align: left; }
+        th, td { border: 1px solid #555; padding: 8px; text-align: left; }
         th { background: #444; color: #66b3ff; white-space: nowrap; }
         td:nth-child(4) { text-align: right; color: #ffdd66; font-weight: bold; }
         
         .action-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .action-btns button { margin: 0; padding: 12px; font-size: 15px; }
+        .action-btns button { margin: 0; padding: 12px; font-size: 14px; }
         .btn-copy { background: #28a745; }
         .btn-share { background: #17a2b8; grid-column: span 2; }
-        
-        .checkbox-group { display: flex; align-items: center; font-size: 14px; color: #ccc; margin-bottom: 15px; }
-        .checkbox-group input { width: auto; margin-right: 10px; transform: scale(1.3); }
-        #statusText { color: #aaa; font-size: 14px; text-align: center; margin-top: 10px; white-space: pre-wrap;}
     </style>
 </head>
 <body>
@@ -47,31 +52,11 @@
     <img id="preview" alt="發票預覽">
 
     <button id="submitBtn">送出解析</button>
-    <button id="scanMoreBtn">📷 繼續掃下一張</button>
-    
     <div id="statusText"></div>
 
-    <div id="resultContainer">
-        <div class="table-responsive">
-            <table id="resultTable">
-                <thead>
-                    <tr>
-                        <th>日期</th>
-                        <th>項目(原文)</th>
-                        <th>中文翻譯(對帳用)</th>
-                        <th>日幣</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody"></tbody>
-            </table>
-        </div>
-        
-        <div class="action-btns">
-            <button id="copyDetailsBtn" class="btn-copy">📋 複製所有明細</button>
-            <button id="copyTotalBtn" class="btn-copy">📋 複製所有加總</button>
-            <button id="shareBtn" class="btn-share">📤 系統分享 / 複製全部</button>
-        </div>
-    </div>
+    <div class="divider">👇 解析紀錄 (存在本機) 👇</div>
+    
+    <div id="historyContainer"></div>
 
     <script>
         const apiKeyInput = document.getElementById('apiKey');
@@ -79,22 +64,18 @@
         const imageInput = document.getElementById('imageInput');
         const preview = document.getElementById('preview');
         const submitBtn = document.getElementById('submitBtn');
-        const scanMoreBtn = document.getElementById('scanMoreBtn');
         const statusText = document.getElementById('statusText');
-        const resultContainer = document.getElementById('resultContainer');
-        const tableBody = document.getElementById('tableBody');
-        
-        const copyDetailsBtn = document.getElementById('copyDetailsBtn');
-        const copyTotalBtn = document.getElementById('copyTotalBtn');
-        const shareBtn = document.getElementById('shareBtn');
+        const historyContainer = document.getElementById('historyContainer');
         
         let base64Image = "";
         
-        // 全局累積變數，掃幾張存幾張
-        let globalDetailsTsv = "";
-        let globalTotalTsv = "";
-        let globalShareText = "";
+        // 1. 從 LocalStorage 讀取歷史紀錄陣列 (如果沒有就給空陣列)
+        let invoiceHistory = JSON.parse(localStorage.getItem('invoice_history')) || [];
+        
+        // 用來暫存每張卡片的 TSV 複製字串
+        window.tempActionData = {};
 
+        // 初始化設定
         if (localStorage.getItem('saved_gemini_key')) {
             apiKeyInput.value = localStorage.getItem('saved_gemini_key');
             saveKeyCheck.checked = true;
@@ -112,20 +93,79 @@
                 preview.src = event.target.result;
                 preview.style.display = 'block';
                 base64Image = event.target.result.split(',')[1];
+                statusText.innerText = "照片已載入，可按送出。";
             };
             reader.readAsDataURL(file);
         });
 
-        // 繼續掃下一張按鈕功能
-        scanMoreBtn.addEventListener('click', () => {
-            imageInput.value = '';
-            preview.style.display = 'none';
-            base64Image = '';
-            scanMoreBtn.style.display = 'none';
-            submitBtn.style.display = 'block';
-            statusText.innerText = "請上傳新發票";
-        });
+        // 2. 核心渲染函數：把陣列資料畫成 HTML 卡片
+        function renderHistory() {
+            historyContainer.innerHTML = '';
+            window.tempActionData = {}; // 清空暫存字串
 
+            if (invoiceHistory.length === 0) {
+                historyContainer.innerHTML = '<p style="text-align:center; color:#777;">目前沒有任何紀錄。</p>';
+                return;
+            }
+
+            invoiceHistory.forEach((record, index) => {
+                let detailsTsv = "";
+                let totalTsv = "";
+                let shareText = "發票解析明細：\n\n";
+                let trs = "";
+
+                // 組合表格與字串
+                record.data.forEach((row, rIndex) => {
+                    trs += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
+                    
+                    if (rIndex === record.data.length - 1) {
+                        totalTsv = `${row.date}\t${row.item}\t${row.price}`;
+                    } else {
+                        if (detailsTsv !== "") detailsTsv += "\n";
+                        detailsTsv += `${row.date}\t${row.item}\t${row.price}`;
+                    }
+                });
+
+                shareText += record.data.map(r => {
+                    if (r.translation) return `${r.date || '    '} | ${r.item} | ${r.translation} | ¥${r.price}`;
+                    return `${r.date || '    '} | ${r.item} | ¥${r.price}`;
+                }).join('\n\n');
+
+                // 把字串存進全域物件，讓按鈕可以抓
+                window.tempActionData[index] = { detailsTsv, totalTsv, shareText };
+
+                // 畫出這張卡片
+                const card = document.createElement('div');
+                card.className = 'invoice-card';
+                
+                // 轉換時間戳記為可讀格式
+                const timeStr = new Date(record.timestamp).toLocaleString('zh-TW', {hour12: false});
+
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="card-time">掃描時間：${timeStr}</span>
+                        <button class="btn-delete" onclick="deleteRecord(${index})">刪除</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table>
+                            <thead><tr><th>日期</th><th>項目(原文)</th><th>中文翻譯</th><th>日幣</th></tr></thead>
+                            <tbody>${trs}</tbody>
+                        </table>
+                    </div>
+                    <div class="action-btns">
+                        <button class="btn-copy" onclick="handleCopyBtn(this, ${index}, 'details')">📋 複製明細</button>
+                        <button class="btn-copy" onclick="handleCopyBtn(this, ${index}, 'total')">📋 複製加總</button>
+                        <button class="btn-share" onclick="handleShareBtn(this, ${index})">📤 系統分享 / 複製全部</button>
+                    </div>
+                `;
+                historyContainer.appendChild(card);
+            });
+        }
+
+        // 頁面載入時先畫一次歷史紀錄
+        renderHistory();
+
+        // 3. 送出解析
         submitBtn.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             if (!apiKey) return alert("API Key 沒填。");
@@ -162,9 +202,9 @@
                 
                 let rawText = data.candidates[0].content.parts[0].text;
                 rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-                
                 const parsedData = JSON.parse(rawText);
                 
+                // 處理加總名稱
                 if (parsedData.length > 1) {
                     const itemsData = parsedData.slice(0, -1);
                     const firstItem = itemsData[0];
@@ -181,44 +221,21 @@
                     totalRow.item = `加總：${storeName}(${summaryNames.join(',')}${summarySuffix})`;
                 }
 
-                let newHtml = '';
-                let newDetailsTsv = '';
-                let newTotalTsv = '';
-                let newShareText = '';
-
-                parsedData.forEach((row, index) => {
-                    newHtml += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
-                    
-                    if (index === parsedData.length - 1) {
-                        newTotalTsv = `${row.date}\t${row.item}\t${row.price}`;
-                    } else {
-                        if (newDetailsTsv !== "") newDetailsTsv += "\n";
-                        newDetailsTsv += `${row.date}\t${row.item}\t${row.price}`;
-                    }
+                // 4. 將新資料存入陣列最前方，並更新 LocalStorage
+                invoiceHistory.unshift({
+                    timestamp: Date.now(), // 加上時間戳記作為辨識
+                    data: parsedData
                 });
+                localStorage.setItem('invoice_history', JSON.stringify(invoiceHistory));
 
-                newShareText += parsedData.map(r => {
-                    if (r.translation) {
-                        return `${r.date || '    '} | ${r.item} | ${r.translation} | ¥${r.price}`;
-                    } else {
-                        return `${r.date || '    '} | ${r.item} | ¥${r.price}`;
-                    }
-                }).join('\n\n');
-
-                // 把新資料疊加到全域變數前面 (新的在最上面)
-                globalDetailsTsv = newDetailsTsv + (globalDetailsTsv ? "\n" + globalDetailsTsv : "");
-                globalTotalTsv = newTotalTsv + (globalTotalTsv ? "\n" + globalTotalTsv : "");
-                globalShareText = newShareText + (globalShareText ? "\n\n---\n\n" + globalShareText : "");
-
-                // 新表格資料插在最上面
-                tableBody.insertAdjacentHTML('afterbegin', newHtml);
+                // 重新渲染畫面
+                renderHistory();
                 
-                resultContainer.style.display = 'block';
-                statusText.innerText = "解析完成！可以點擊下方按鈕繼續掃描。";
-                
-                // 切換按鈕顯示狀態
-                submitBtn.style.display = 'none';
-                scanMoreBtn.style.display = 'block';
+                // 重置上傳區，方便掃下一張
+                imageInput.value = '';
+                preview.style.display = 'none';
+                base64Image = '';
+                statusText.innerText = "✅ 解析完成並已儲存！可直接掃描下一張。";
 
             } catch (err) {
                 statusText.innerText = "出錯了：\n" + err.message;
@@ -227,29 +244,36 @@
             }
         });
 
-        function handleCopy(textToCopy, btnElement, successMsg) {
-            if (!textToCopy) return alert("沒資料可複製。");
-            navigator.clipboard.writeText(textToCopy).then(() => {
+        // 5. 按鈕的通用功能 (全域函數，因為 HTML 裡是用 onclick 綁定的)
+        window.deleteRecord = function(index) {
+            if (confirm("確定要刪除這筆紀錄嗎？")) {
+                invoiceHistory.splice(index, 1); // 從陣列拔掉
+                localStorage.setItem('invoice_history', JSON.stringify(invoiceHistory)); // 存回本機
+                renderHistory(); // 重畫畫面
+            }
+        };
+
+        window.handleCopyBtn = function(btnElement, index, type) {
+            const dataToCopy = type === 'details' ? window.tempActionData[index].detailsTsv : window.tempActionData[index].totalTsv;
+            if (!dataToCopy) return alert("沒資料。");
+            
+            navigator.clipboard.writeText(dataToCopy).then(() => {
                 const originalText = btnElement.innerText;
                 const originalBg = btnElement.style.background;
-                btnElement.innerText = successMsg;
+                btnElement.innerText = "✅ 已複製";
                 btnElement.style.background = "#1e7e34";
                 setTimeout(() => {
                     btnElement.innerText = originalText;
                     btnElement.style.background = originalBg;
                 }, 2000);
             }).catch(() => alert("複製失敗。"));
-        }
+        };
 
-        copyDetailsBtn.addEventListener('click', () => handleCopy(globalDetailsTsv, copyDetailsBtn, "✅ 已複製所有明細"));
-        copyTotalBtn.addEventListener('click', () => handleCopy(globalTotalTsv, copyTotalBtn, "✅ 已複製所有加總"));
-
-        shareBtn.addEventListener('click', async () => {
-            if (!globalShareText) return alert("沒資料可分享。");
-            const shareData = {
-                title: '發票解析結果',
-                text: "發票解析明細：\n\n" + globalShareText
-            };
+        window.handleShareBtn = async function(btnElement, index) {
+            const shareText = window.tempActionData[index].shareText;
+            if (!shareText) return alert("沒資料。");
+            
+            const shareData = { title: '發票解析結果', text: shareText };
             
             if (navigator.share && navigator.canShare(shareData)) {
                 try {
@@ -258,9 +282,13 @@
                     console.log('分享取消');
                 }
             } else {
-                handleCopy(shareData.text, shareBtn, "✅ 已複製全部內容");
+                navigator.clipboard.writeText(shareText).then(() => {
+                    const originalText = btnElement.innerText;
+                    btnElement.innerText = "✅ 已複製完整文字";
+                    setTimeout(() => btnElement.innerText = originalText, 2000);
+                });
             }
-        });
+        };
     </script>
 </body>
 </html>
