@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>發票解析工具 (究極記帳版)</title>
+    <title>發票解析工具 (究極對帳版)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; }
         h2 { text-align: center; margin-top: 0; }
@@ -16,12 +16,14 @@
         #preview { max-width: 100%; border-radius: 8px; margin-top: 10px; display: none; }
         
         #resultContainer { margin-top: 20px; display: none; }
-        table { width: 100%; border-collapse: collapse; background: #2d2d2d; font-size: 15px; margin-bottom: 15px; }
-        th, td { border: 1px solid #555; padding: 10px; text-align: left; }
-        th { background: #444; color: #66b3ff; }
-        td:nth-child(3) { text-align: right; }
         
-        /* 三個按鈕的排版 */
+        /* 讓表格在手機上可以左右滑動，不會擠爛 */
+        .table-responsive { width: 100%; overflow-x: auto; margin-bottom: 15px; border-radius: 8px; border: 1px solid #555; }
+        table { width: 100%; border-collapse: collapse; background: #2d2d2d; font-size: 14px; min-width: 500px; }
+        th, td { border: 1px solid #555; padding: 10px 8px; text-align: left; }
+        th { background: #444; color: #66b3ff; white-space: nowrap; }
+        td:nth-child(4) { text-align: right; color: #ffdd66; font-weight: bold; } /* 日幣特別標色 */
+        
         .action-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .action-btns button { margin: 0; padding: 12px; font-size: 15px; }
         .btn-copy { background: #28a745; }
@@ -47,16 +49,19 @@
     <div id="statusText"></div>
 
     <div id="resultContainer">
-        <table id="resultTable">
-            <thead>
-                <tr>
-                    <th>日期</th>
-                    <th>項目</th>
-                    <th>日幣</th>
-                </tr>
-            </thead>
-            <tbody id="tableBody"></tbody>
-        </table>
+        <div class="table-responsive">
+            <table id="resultTable">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>項目(原文)</th>
+                        <th>中文翻譯(對帳用)</th>
+                        <th>日幣</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
         
         <div class="action-btns">
             <button id="copyDetailsBtn" class="btn-copy">📋 複製明細</button>
@@ -80,9 +85,9 @@
         const shareBtn = document.getElementById('shareBtn');
         
         let base64Image = "";
-        let detailsTsv = "";
-        let totalTsv = "";
-        let fullShareText = "";
+        let detailsTsv = "";    // 只存 3 欄
+        let totalTsv = "";      // 只存 3 欄
+        let fullShareText = ""; // 存所有內容含翻譯
 
         if (localStorage.getItem('saved_gemini_key')) {
             apiKeyInput.value = localStorage.getItem('saved_gemini_key');
@@ -119,12 +124,12 @@
             const prompt = `請解析這張發票。
             請嚴格輸出純 JSON 陣列格式，不要加上 \`\`\`json 標籤，也不要說任何其他廢話。
             規則如下：
-            1. 每一筆品項轉成一個 JSON 物件：{"date": "MM/DD", "item": "店名 - 中文品項名", "price": 數字}。
-            2. 最後一筆必須是加總物件：{"date": "", "item": "店名 (總計)", "price": 總金額數字}。
+            1. 每一筆品項轉成一個 JSON 物件：{"date": "MM/DD", "item": "店名 - 日文原文", "translation": "中文翻譯", "price": 數字}。
+            2. 最後一筆必須是加總物件：{"date": "", "item": "店名 (總計)", "translation": "", "price": 總金額數字}。
             例如：
             [
-              {"date": "08/13", "item": "駿河屋 - 生日兔子玩偶", "price": 600},
-              {"date": "", "item": "駿河屋 (總計)", "price": 3000}
+              {"date": "08/13", "item": "駿河屋 - 誕生日なうさぎBIGぬいぐるみ", "translation": "生日兔子 BIG 絨毛娃娃", "price": 600},
+              {"date": "", "item": "駿河屋 (總計)", "translation": "", "price": 3000}
             ]`;
             
             try {
@@ -149,29 +154,22 @@
                 
                 const parsedData = JSON.parse(rawText);
                 
-                // --- 這裡開始是你要的「自動組合總計名稱與日期」的魔改邏輯 ---
+                // 自動組合總計名稱與日期的邏輯
                 if (parsedData.length > 1) {
-                    const itemsData = parsedData.slice(0, -1); // 扣掉最後一筆總計的所有明細
+                    const itemsData = parsedData.slice(0, -1);
                     const firstItem = itemsData[0];
-                    
-                    // 抓店名
                     const storeName = firstItem.item.includes(' - ') ? firstItem.item.split(' - ')[0].trim() : "未知名稱";
                     
-                    // 抓前三個品項，並只取前三個字
                     const summaryNames = itemsData.slice(0, 3).map(r => {
                         const pureItemName = r.item.includes(' - ') ? r.item.split(' - ')[1].trim() : r.item.trim();
-                        return pureItemName.substring(0, 3); // 只取前三個字
+                        return pureItemName.substring(0, 3);
                     });
                     
-                    // 如果品項超過三個，後面加個「...」
                     const summarySuffix = itemsData.length > 3 ? "..." : "";
-                    
-                    // 把最後一筆(總計)拿出來改造
                     const totalRow = parsedData[parsedData.length - 1];
-                    totalRow.date = firstItem.date; // 強制補上第一筆的日期
-                    totalRow.item = `${storeName}(${summaryNames.join(',')}${summarySuffix})`; // 重新組裝項目名稱
+                    totalRow.date = firstItem.date;
+                    totalRow.item = `${storeName}(${summaryNames.join(',')}${summarySuffix})`;
                 }
-                // --- 魔改邏輯結束 ---
 
                 let html = '';
                 detailsTsv = "";
@@ -179,8 +177,10 @@
                 fullShareText = "發票解析明細：\n\n";
 
                 parsedData.forEach((row, index) => {
-                    html += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.price}</td></tr>`;
+                    // 表格顯示 4 欄 (讓你看爽的)
+                    html += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
                     
+                    // 複製按鈕專用的 TSV，只抽 3 欄 (無視 translation)
                     if (index === parsedData.length - 1) {
                         totalTsv = `${row.date}\t${row.item}\t${row.price}`;
                     } else {
@@ -189,11 +189,18 @@
                     }
                 });
 
-                fullShareText += parsedData.map(r => `${r.date || '    '} | ${r.item} | ¥${r.price}`).join('\n');
+                // 分享用的文字，包含翻譯
+                fullShareText += parsedData.map(r => {
+                    if (r.translation) {
+                        return `${r.date || '    '} | ${r.item} | ${r.translation} | ¥${r.price}`;
+                    } else {
+                        return `${r.date || '    '} | ${r.item} | ¥${r.price}`;
+                    }
+                }).join('\n');
 
                 tableBody.innerHTML = html;
                 resultContainer.style.display = 'block';
-                statusText.innerText = "解析完成！";
+                statusText.innerText = "解析完成！請對帳。";
 
             } catch (err) {
                 statusText.innerText = "出錯了，可能是 AI 沒按格式回傳：\n" + err.message;
@@ -215,8 +222,9 @@
             }).catch(() => alert("複製失敗，請檢查瀏覽器權限。"));
         }
 
-        copyDetailsBtn.addEventListener('click', () => handleCopy(detailsTsv, copyDetailsBtn, "✅ 明細已複製"));
-        copyTotalBtn.addEventListener('click', () => handleCopy(totalTsv, copyTotalBtn, "✅ 加總已複製"));
+        // 這裡綁定的變數是 detailsTsv 跟 totalTsv，裡面只有 3 欄
+        copyDetailsBtn.addEventListener('click', () => handleCopy(detailsTsv, copyDetailsBtn, "✅ 明細已複製 (純3欄)"));
+        copyTotalBtn.addEventListener('click', () => handleCopy(totalTsv, copyTotalBtn, "✅ 加總已複製 (純3欄)"));
 
         shareBtn.addEventListener('click', async () => {
             const shareData = {
@@ -228,11 +236,10 @@
                 try {
                     await navigator.share(shareData);
                 } catch (err) {
-                    console.log('分享取消或失敗:', err);
+                    console.log('分享取消:', err);
                 }
             } else {
-                const fullTsv = detailsTsv + "\n" + totalTsv;
-                handleCopy(fullTsv, shareBtn, "✅ 已複製全部內容");
+                handleCopy(fullShareText, shareBtn, "✅ 已複製含翻譯完整文字");
             }
         });
     </script>
