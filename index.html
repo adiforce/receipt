@@ -19,10 +19,8 @@
         .checkbox-group input { width: auto; margin-right: 10px; transform: scale(1.3); }
         #statusText { color: #aaa; font-size: 14px; text-align: center; margin-top: 10px; margin-bottom: 20px; white-space: pre-wrap; min-height: 20px;}
         
-        /* 歷史紀錄區塊的分割線 */
         .divider { border-top: 1px solid #444; margin: 20px 0; padding-top: 10px; color: #888; text-align: center; font-size: 14px; letter-spacing: 2px;}
 
-        /* 發票卡片樣式 */
         .invoice-card { background: #252525; padding: 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; position: relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .card-time { font-size: 12px; color: #888; }
@@ -48,7 +46,7 @@
         <input type="checkbox" id="saveKey"> <label for="saveKey">記住金鑰</label>
     </div>
 
-    <input type="file" id="imageInput" accept="image/*" capture="environment">
+    <input type="file" id="imageInput" accept="image/*">
     <img id="preview" alt="發票預覽">
 
     <button id="submitBtn">送出解析</button>
@@ -69,13 +67,9 @@
         
         let base64Image = "";
         
-        // 1. 從 LocalStorage 讀取歷史紀錄陣列 (如果沒有就給空陣列)
         let invoiceHistory = JSON.parse(localStorage.getItem('invoice_history')) || [];
-        
-        // 用來暫存每張卡片的 TSV 複製字串
         window.tempActionData = {};
 
-        // 初始化設定
         if (localStorage.getItem('saved_gemini_key')) {
             apiKeyInput.value = localStorage.getItem('saved_gemini_key');
             saveKeyCheck.checked = true;
@@ -98,10 +92,9 @@
             reader.readAsDataURL(file);
         });
 
-        // 2. 核心渲染函數：把陣列資料畫成 HTML 卡片
         function renderHistory() {
             historyContainer.innerHTML = '';
-            window.tempActionData = {}; // 清空暫存字串
+            window.tempActionData = {};
 
             if (invoiceHistory.length === 0) {
                 historyContainer.innerHTML = '<p style="text-align:center; color:#777;">目前沒有任何紀錄。</p>';
@@ -114,7 +107,6 @@
                 let shareText = "發票解析明細：\n\n";
                 let trs = "";
 
-                // 組合表格與字串
                 record.data.forEach((row, rIndex) => {
                     trs += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
                     
@@ -131,14 +123,10 @@
                     return `${r.date || '    '} | ${r.item} | ¥${r.price}`;
                 }).join('\n\n');
 
-                // 把字串存進全域物件，讓按鈕可以抓
                 window.tempActionData[index] = { detailsTsv, totalTsv, shareText };
 
-                // 畫出這張卡片
                 const card = document.createElement('div');
                 card.className = 'invoice-card';
-                
-                // 轉換時間戳記為可讀格式
                 const timeStr = new Date(record.timestamp).toLocaleString('zh-TW', {hour12: false});
 
                 card.innerHTML = `
@@ -162,10 +150,8 @@
             });
         }
 
-        // 頁面載入時先畫一次歷史紀錄
         renderHistory();
 
-        // 3. 送出解析
         submitBtn.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
             if (!apiKey) return alert("API Key 沒填。");
@@ -204,7 +190,6 @@
                 rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
                 const parsedData = JSON.parse(rawText);
                 
-                // 處理加總名稱
                 if (parsedData.length > 1) {
                     const itemsData = parsedData.slice(0, -1);
                     const firstItem = itemsData[0];
@@ -221,21 +206,18 @@
                     totalRow.item = `加總：${storeName}(${summaryNames.join(',')}${summarySuffix})`;
                 }
 
-                // 4. 將新資料存入陣列最前方，並更新 LocalStorage
                 invoiceHistory.unshift({
-                    timestamp: Date.now(), // 加上時間戳記作為辨識
+                    timestamp: Date.now(),
                     data: parsedData
                 });
                 localStorage.setItem('invoice_history', JSON.stringify(invoiceHistory));
 
-                // 重新渲染畫面
                 renderHistory();
                 
-                // 重置上傳區，方便掃下一張
                 imageInput.value = '';
                 preview.style.display = 'none';
                 base64Image = '';
-                statusText.innerText = "✅ 解析完成並已儲存！可直接掃描下一張。";
+                statusText.innerText = "✅ 解析完成並已儲存！可直接挑選下一張。";
 
             } catch (err) {
                 statusText.innerText = "出錯了：\n" + err.message;
@@ -244,12 +226,11 @@
             }
         });
 
-        // 5. 按鈕的通用功能 (全域函數，因為 HTML 裡是用 onclick 綁定的)
         window.deleteRecord = function(index) {
             if (confirm("確定要刪除這筆紀錄嗎？")) {
-                invoiceHistory.splice(index, 1); // 從陣列拔掉
-                localStorage.setItem('invoice_history', JSON.stringify(invoiceHistory)); // 存回本機
-                renderHistory(); // 重畫畫面
+                invoiceHistory.splice(index, 1);
+                localStorage.setItem('invoice_history', JSON.stringify(invoiceHistory));
+                renderHistory();
             }
         };
 
