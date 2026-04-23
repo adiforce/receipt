@@ -47,12 +47,11 @@
         <input type="checkbox" id="saveKey"> <label for="saveKey">記住金鑰</label>
     </div>
 
-    <label style="font-size: 14px; color: #ccc;">伺服器塞車時，請切換模型：</label>
+<label style="font-size: 14px; color: #ccc;">伺服器塞車或報錯時，請切換模型：</label>
     <select id="modelSelect">
-        <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (最聰明 / 易滿載)</option>
-        <option value="gemini-2.0-flash">Gemini 2.0 Flash (穩定 / 備用方案)</option>
-        <option value="gemini-1.5-flash">Gemini 1.5 Flash (舊版 / 最不易塞車)</option>
-    </select>
+        <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (主力模型)</option>
+        <option value="gemini-2.5-pro">Gemini 2.5 Pro (算力強 / 慢)</option>
+        </select>
 
     <input type="file" id="imageInput" accept="image/*">
     <img id="preview" alt="發票預覽">
