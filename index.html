@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>發票解析工具 (本機儲存版)</title>
+    <title>發票解析工具 (多模型避難版)</title>
     <style>
         body { font-family: sans-serif; padding: 20px; margin: 0; background: #1e1e1e; color: #f0f0f0; padding-bottom: 50px; }
         h2 { text-align: center; margin-top: 0; }
-        input, button { width: 100%; padding: 14px; margin: 10px 0; border-radius: 8px; border: none; font-size: 16px; box-sizing: border-box; }
+        input, button, select { width: 100%; padding: 14px; margin: 10px 0; border-radius: 8px; border: none; font-size: 16px; box-sizing: border-box; }
         input[type="password"] { background: #333; color: #fff; border: 1px solid #555; }
         input[type="file"] { background: #333; color: #fff; padding: 12px; border: 1px dashed #777; }
+        select { background: #333; color: #fff; border: 1px solid #555; appearance: none; }
         button { background: #007bff; color: white; font-weight: bold; cursor: pointer; transition: background 0.2s; }
         button:disabled { background: #555; color: #999; }
         
@@ -46,6 +47,13 @@
         <input type="checkbox" id="saveKey"> <label for="saveKey">記住金鑰</label>
     </div>
 
+    <label style="font-size: 14px; color: #ccc;">伺服器塞車時，請切換模型：</label>
+    <select id="modelSelect">
+        <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (最聰明 / 易滿載)</option>
+        <option value="gemini-2.0-flash">Gemini 2.0 Flash (穩定 / 備用方案)</option>
+        <option value="gemini-1.5-flash">Gemini 1.5 Flash (舊版 / 最不易塞車)</option>
+    </select>
+
     <input type="file" id="imageInput" accept="image/*">
     <img id="preview" alt="發票預覽">
 
@@ -53,12 +61,12 @@
     <div id="statusText"></div>
 
     <div class="divider">👇 解析紀錄 (存在本機) 👇</div>
-    
     <div id="historyContainer"></div>
 
     <script>
         const apiKeyInput = document.getElementById('apiKey');
         const saveKeyCheck = document.getElementById('saveKey');
+        const modelSelect = document.getElementById('modelSelect');
         const imageInput = document.getElementById('imageInput');
         const preview = document.getElementById('preview');
         const submitBtn = document.getElementById('submitBtn');
@@ -66,17 +74,24 @@
         const historyContainer = document.getElementById('historyContainer');
         
         let base64Image = "";
-        
         let invoiceHistory = JSON.parse(localStorage.getItem('invoice_history')) || [];
         window.tempActionData = {};
 
+        // 初始化設定 (金鑰與上次選用的模型)
         if (localStorage.getItem('saved_gemini_key')) {
             apiKeyInput.value = localStorage.getItem('saved_gemini_key');
             saveKeyCheck.checked = true;
         }
+        if (localStorage.getItem('saved_model')) {
+            modelSelect.value = localStorage.getItem('saved_model');
+        }
 
         saveKeyCheck.addEventListener('change', () => {
             if (!saveKeyCheck.checked) localStorage.removeItem('saved_gemini_key');
+        });
+
+        modelSelect.addEventListener('change', () => {
+            localStorage.setItem('saved_model', modelSelect.value);
         });
 
         imageInput.addEventListener('change', (e) => {
@@ -109,7 +124,6 @@
 
                 record.data.forEach((row, rIndex) => {
                     trs += `<tr><td>${row.date}</td><td>${row.item}</td><td>${row.translation}</td><td>${row.price}</td></tr>`;
-                    
                     if (rIndex === record.data.length - 1) {
                         totalTsv = `${row.date}\t${row.item}\t${row.price}`;
                     } else {
@@ -128,10 +142,14 @@
                 const card = document.createElement('div');
                 card.className = 'invoice-card';
                 const timeStr = new Date(record.timestamp).toLocaleString('zh-TW', {hour12: false});
+                const modelUsed = record.model ? `<span style="font-size:10px; color:#555; margin-left:10px;">(${record.model})</span>` : '';
 
                 card.innerHTML = `
                     <div class="card-header">
-                        <span class="card-time">掃描時間：${timeStr}</span>
+                        <div>
+                            <span class="card-time">掃描時間：${timeStr}</span>
+                            ${modelUsed}
+                        </div>
                         <button class="btn-delete" onclick="deleteRecord(${index})">刪除</button>
                     </div>
                     <div class="table-responsive">
@@ -154,13 +172,14 @@
 
         submitBtn.addEventListener('click', async () => {
             const apiKey = apiKeyInput.value.trim();
+            const selectedModel = modelSelect.value;
             if (!apiKey) return alert("API Key 沒填。");
             if (!base64Image) return alert("照片沒傳。");
 
             if (saveKeyCheck.checked) localStorage.setItem('saved_gemini_key', apiKey);
 
             submitBtn.disabled = true;
-            statusText.innerText = "玩命解析中，請稍候...";
+            statusText.innerText = `使用 ${selectedModel} 玩命解析中，請稍候...`;
 
             const prompt = `請解析這張發票。
             請嚴格輸出純 JSON 陣列格式，不要加上 \`\`\`json 標籤，也不要說任何廢話。
@@ -170,7 +189,8 @@
             2. 最後一筆必須是加總物件：{"date": "", "item": "店名 (總計)", "translation": "", "price": 總金額數字}。`;
             
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                // 動態帶入使用者選擇的模型
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -208,6 +228,7 @@
 
                 invoiceHistory.unshift({
                     timestamp: Date.now(),
+                    model: selectedModel, // 紀錄是用哪個模型解出來的
                     data: parsedData
                 });
                 localStorage.setItem('invoice_history', JSON.stringify(invoiceHistory));
@@ -217,7 +238,7 @@
                 imageInput.value = '';
                 preview.style.display = 'none';
                 base64Image = '';
-                statusText.innerText = "✅ 解析完成並已儲存！可直接挑選下一張。";
+                statusText.innerText = "✅ 解析完成並已儲存！";
 
             } catch (err) {
                 statusText.innerText = "出錯了：\n" + err.message;
